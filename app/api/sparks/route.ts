@@ -1,17 +1,15 @@
 // GET /api/sparks?symbols=005930.KS,000660.KS&range=1mo
 // 여러 종목의 추세선(작은 차트)용 종가 시계열을 한 번에 반환한다.
+// 네이버 금융 일봉을 사용한다(실패한 종목은 추세선만 비고 나머지는 정상 표시).
 import type { NextRequest } from "next/server"
 
 import type { ChartPoint } from "@/lib/types"
-import { getChart } from "@/lib/yahoo"
+import { getDailyPoints } from "@/lib/naver-chart"
 
 export const dynamic = "force-dynamic"
 
-const INTERVAL: Record<string, string> = {
-  "5d": "1h",
-  "1mo": "1d",
-  "3mo": "1d",
-}
+// range -> 일봉 개수 (추세선 길이)
+const COUNT: Record<string, number> = { "5d": 6, "1mo": 22, "3mo": 66 }
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams
@@ -25,15 +23,15 @@ export async function GET(request: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 60)
-  const interval = INTERVAL[range] ?? "1d"
+  const count = COUNT[range] ?? 22
 
   const settled = await Promise.allSettled(
-    symbols.map((s) => getChart(s, range, interval)),
+    symbols.map((s) => getDailyPoints(s, count)),
   )
   const sparks: Record<string, ChartPoint[]> = {}
   settled.forEach((r, i) => {
-    if (r.status === "fulfilled" && r.value) {
-      sparks[symbols[i]] = r.value.points
+    if (r.status === "fulfilled" && r.value.length > 0) {
+      sparks[symbols[i]] = r.value
     }
   })
   return Response.json({ sparks })

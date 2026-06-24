@@ -1,12 +1,16 @@
 // GET /api/chart?symbol=005930.KS&range=1mo
 // 한 종목/지수의 차트 시계열을 반환한다.
+//
+// 차트는 네이버 금융(1일=실시간 분봉, 그 외=일봉)을 우선 사용하고,
+// 실패 시 Yahoo Finance(지연)로 폴백한다.
 import type { NextRequest } from "next/server"
 
-import { getChart } from "@/lib/yahoo"
+import { getChart as getNaverChart } from "@/lib/naver-chart"
+import { getChart as getYahooChart } from "@/lib/yahoo"
 
 export const dynamic = "force-dynamic"
 
-// range -> Yahoo interval 매핑 (점 개수가 적당하도록 선택)
+// range -> Yahoo interval 매핑 (폴백 시 점 개수가 적당하도록 선택)
 const INTERVAL: Record<string, string> = {
   "1d": "5m",
   "5d": "30m",
@@ -23,10 +27,14 @@ export async function GET(request: NextRequest) {
   if (!symbol) {
     return Response.json({ error: "symbol 파라미터가 필요합니다." }, { status: 400 })
   }
-  const interval = INTERVAL[range] ?? "1d"
 
   try {
-    const chart = await getChart(symbol, range, interval)
+    // 1) 네이버(실시간 분봉/일봉) 우선
+    let chart = await getNaverChart(symbol, range).catch(() => null)
+    // 2) 실패하면 Yahoo 로 폴백
+    if (!chart) {
+      chart = await getYahooChart(symbol, range, INTERVAL[range] ?? "1d")
+    }
     if (!chart) {
       return Response.json({ error: "차트 데이터를 찾을 수 없습니다." }, { status: 404 })
     }

@@ -65,20 +65,30 @@ export default function Page() {
   } | null>(null)
 
   const portfolio = usePortfolio()
-  const holdingSymbols = portfolio.holdings.map((h) => h.symbol)
 
+  // 시세를 조회할 전체 심볼 목록.
+  // 의존성은 반드시 안정적인 참조(portfolio.holdings)여야 한다.
+  // 매 렌더마다 새로 만든 배열(예: holdings.map(...))을 의존성에 넣으면
+  // 이 useMemo → refreshQuotes(useCallback) → 시세 자동 갱신 effect 가
+  // 매 렌더마다 재생성/재실행되어 시세를 쉬지 않고 반복 요청하는
+  // 무한 루프가 발생한다(특히 모바일에서 심한 버벅임의 원인).
   const allQuoteSymbols = React.useMemo(
     () => [
       ...new Set([
         ...INDICES.map((i) => i.symbol),
         ...ALL_STOCKS.map((s) => s.symbol),
-        ...holdingSymbols,
+        ...portfolio.holdings.map((h) => h.symbol),
       ]),
     ],
-    [holdingSymbols],
+    [portfolio.holdings],
   )
 
+  // 이미 시세를 가져오는 중이면 중복 요청을 막는다(느린 모바일 회선에서
+  // 자동 갱신과 수동 새로고침이 겹쳐 요청이 쌓이는 것을 방지).
+  const inFlight = React.useRef(false)
   const refreshQuotes = React.useCallback(async () => {
+    if (inFlight.current) return
+    inFlight.current = true
     setLoading(true)
     try {
       const qs = await fetchQuotes(allQuoteSymbols)
@@ -89,15 +99,16 @@ export default function Page() {
     } catch {
       // 무시: 다음 새로고침에서 재시도
     } finally {
+      inFlight.current = false
       setLoading(false)
     }
   }, [allQuoteSymbols])
 
-  // 시세 최초 로드 + 60초마다 자동 갱신
+  // 시세 최초 로드 + 10초마다 자동 갱신 (네이버 실시간 시세)
   // (effect 본문에서 동기 setState 를 피하기 위해 타이머로 예약)
   React.useEffect(() => {
     const initial = setTimeout(refreshQuotes, 0)
-    const id = setInterval(refreshQuotes, 60_000)
+    const id = setInterval(refreshQuotes, 10_000)
     return () => {
       clearTimeout(initial)
       clearInterval(id)
@@ -162,7 +173,7 @@ export default function Page() {
         </SidebarContent>
         <SidebarFooter>
           <p className="px-2 py-1 text-[10px] leading-tight text-muted-foreground group-data-[collapsible=icon]:hidden">
-            시세: Yahoo Finance
+            시세: 네이버 금융 (실시간)
             <br />
             뉴스: Google 뉴스
           </p>
@@ -285,7 +296,7 @@ export default function Page() {
         </main>
 
         <footer className="mx-auto w-full max-w-5xl px-4 py-6 text-center text-xs text-muted-foreground">
-          시세: Yahoo Finance · 뉴스: Google 뉴스 · 약 15~20분 지연될 수 있습니다.
+          시세·차트: 네이버 금융(실시간, 10초 갱신) · 뉴스: Google 뉴스
           <br />
           투자 판단의 책임은 본인에게 있습니다.
         </footer>
