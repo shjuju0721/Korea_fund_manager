@@ -2,7 +2,14 @@
 // 같은 오리진이라 CORS 문제가 없다.
 "use client"
 
-import type { ChartPoint, ChartResponse, NewsItem, Quote } from "@/lib/types"
+import type { ChartPoint, ChartResponse, NewsItem, Quote, RankItem } from "@/lib/types"
+
+export async function fetchMarketCapTop(limit = 100): Promise<RankItem[]> {
+  const res = await fetch(`/api/ranking?sort=marketValue&limit=${limit}`)
+  if (!res.ok) throw new Error("시총 순위 조회 실패")
+  const data = (await res.json()) as { items: RankItem[] }
+  return data.items
+}
 
 export async function fetchQuotes(symbols: string[]): Promise<Quote[]> {
   if (symbols.length === 0) return []

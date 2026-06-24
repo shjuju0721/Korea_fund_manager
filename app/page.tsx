@@ -4,6 +4,7 @@
 // 탭: 대시보드(지수+테마별), 급등주, 하락주, 실적 우량주 20선, 내 투자, 주요 뉴스.
 import * as React from "react"
 import {
+  Coins,
   LineChart,
   Newspaper,
   RefreshCw,
@@ -13,9 +14,9 @@ import {
   Wallet,
 } from "lucide-react"
 
-import type { ChartPoint, Quote } from "@/lib/types"
+import type { ChartPoint, Quote, RankItem } from "@/lib/types"
 import { ALL_STOCKS, INDICES, THEMES, type StockMeta } from "@/lib/stocks"
-import { fetchQuotes, fetchSparks } from "@/lib/api-client"
+import { fetchMarketCapTop, fetchQuotes, fetchSparks } from "@/lib/api-client"
 import { usePortfolio } from "@/hooks/use-portfolio"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -41,14 +42,23 @@ import { RankingPanel } from "@/components/ranking-panel"
 import { TopPicksPanel } from "@/components/top-picks-panel"
 import { StockDialog } from "@/components/stock-dialog"
 import { StockSearch } from "@/components/stock-search"
+import { MarketCapPanel } from "@/components/marketcap-panel"
 
-type Tab = "dashboard" | "gainers" | "losers" | "top-picks" | "portfolio" | "news"
+type Tab =
+  | "dashboard"
+  | "gainers"
+  | "losers"
+  | "top-picks"
+  | "marketcap"
+  | "portfolio"
+  | "news"
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "대시보드", icon: <LineChart className="size-4" /> },
   { id: "gainers", label: "급등주", icon: <TrendingUp className="size-4" /> },
   { id: "losers", label: "하락주", icon: <TrendingDown className="size-4" /> },
   { id: "top-picks", label: "실적 우량주 20선", icon: <Trophy className="size-4" /> },
+  { id: "marketcap", label: "시총 상위", icon: <Coins className="size-4" /> },
   { id: "portfolio", label: "내 투자", icon: <Wallet className="size-4" /> },
   { id: "news", label: "주요 뉴스", icon: <Newspaper className="size-4" /> },
 ]
@@ -59,6 +69,9 @@ export default function Page() {
   const [sparks, setSparks] = React.useState<Record<string, ChartPoint[]>>({})
   const [loading, setLoading] = React.useState(false)
   const [updatedAt, setUpdatedAt] = React.useState<Date | null>(null)
+  // 시총 상위 종목 (네이버 순위 API). "시총 상위" 탭에서만 로드/갱신한다.
+  const [topCap, setTopCap] = React.useState<RankItem[]>([])
+  const [capLoading, setCapLoading] = React.useState(false)
   const [selected, setSelected] = React.useState<{
     stock: { symbol: string; name: string; code?: string; market?: string }
     isIndex: boolean
@@ -122,6 +135,25 @@ export default function Page() {
       .then(setSparks)
       .catch(() => {})
   }, [])
+
+  // 시총 상위: 해당 탭일 때만 로드하고 10초마다 갱신(불필요한 요청 방지).
+  React.useEffect(() => {
+    if (tab !== "marketcap") return
+    let alive = true
+    const load = () => {
+      setCapLoading(true)
+      fetchMarketCapTop(100)
+        .then((items) => alive && setTopCap(items))
+        .catch(() => {})
+        .finally(() => alive && setCapLoading(false))
+    }
+    load()
+    const id = setInterval(load, 10_000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [tab])
 
   const selectStock = (stock: StockMeta) =>
     setSelected({ stock, isIndex: false })
@@ -279,6 +311,14 @@ export default function Page() {
 
         {tab === "top-picks" && (
           <TopPicksPanel quotes={quotes} onSelect={selectStock} />
+        )}
+
+        {tab === "marketcap" && (
+          <MarketCapPanel
+            items={topCap}
+            loading={capLoading && topCap.length === 0}
+            onSelect={selectStock}
+          />
         )}
 
         {tab === "portfolio" && (

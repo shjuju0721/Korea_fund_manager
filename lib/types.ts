@@ -12,6 +12,21 @@ export type Quote = {
   marketState?: string
 }
 
+/** 시가총액 등 순위 목록의 한 항목 (실시간 시세 포함) */
+export type RankItem = {
+  symbol: string
+  code: string
+  market: "KOSPI" | "KOSDAQ"
+  name: string
+  price: number
+  change: number
+  changePercent: number
+  /** 시가총액(억원) — 정렬용 숫자 */
+  marketValue: number
+  /** 사람이 읽는 시가총액 표기 (예: "1,962조 8,880억원") */
+  marketValueText: string
+}
+
 /** 차트의 한 점 */
 export type ChartPoint = {
   t: number // unix timestamp(초)
