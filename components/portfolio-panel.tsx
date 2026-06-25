@@ -2,10 +2,12 @@
 
 // "내 투자" 탭: 보유 종목 손익 + 추가/삭제 + 보유 종목 관련 뉴스.
 import * as React from "react"
-import { Minus, Plus, Trash2, TrendingUp, Wallet } from "lucide-react"
+import { Loader2, Minus, Plus, Search, Trash2, TrendingUp, Wallet, X } from "lucide-react"
 
 import type { Quote } from "@/lib/types"
-import { ALL_STOCKS, type StockMeta } from "@/lib/stocks"
+import type { StockMeta } from "@/lib/stocks"
+import { loadStockIndex } from "@/lib/api-client"
+import { rankStocks, type SearchHit, type SlimStock } from "@/lib/stock-search"
 import type { Holding } from "@/hooks/use-portfolio"
 import { changeColor, fmtPct, fmtPrice } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -224,18 +226,18 @@ function AddHoldingForm({
   holdings: Holding[]
   onAdd: (h: Holding) => void
 }) {
-  const [symbol, setSymbol] = React.useState("")
+  // 검색으로 선택한 종목 (없으면 아직 미선택)
+  const [selected, setSelected] = React.useState<SearchHit | null>(null)
   const [shares, setShares] = React.useState("")
   const [avgPrice, setAvgPrice] = React.useState("")
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    const meta = ALL_STOCKS.find((s) => s.symbol === symbol)
     const sh = Number(shares)
     const ap = Number(avgPrice)
-    if (!meta || !(sh > 0) || !(ap > 0)) return
-    onAdd({ ...meta, shares: sh, avgPrice: ap })
-    setSymbol("")
+    if (!selected || !(sh > 0) || !(ap > 0)) return
+    onAdd({ ...selected, shares: sh, avgPrice: ap })
+    setSelected(null)
     setShares("")
     setAvgPrice("")
   }
@@ -250,19 +252,11 @@ function AddHoldingForm({
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
-          <select
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            className={inputCls}
-            required
-          >
-            <option value="">종목 선택…</option>
-            {ALL_STOCKS.map((s) => (
-              <option key={s.symbol} value={s.symbol}>
-                {s.name} ({s.code})
-              </option>
-            ))}
-          </select>
+          <StockSearchPicker
+            selected={selected}
+            onSelect={setSelected}
+            inputCls={inputCls}
+          />
           <input
             type="number"
             inputMode="numeric"
@@ -283,16 +277,204 @@ function AddHoldingForm({
             className={cn(inputCls, "w-full sm:w-28")}
             required
           />
-          <Button type="submit" size="lg">
+          <Button type="submit" size="lg" disabled={!selected}>
             추가
           </Button>
         </form>
-        {holdings.some((h) => h.symbol === symbol) && (
+        {selected && holdings.some((h) => h.symbol === selected.symbol) && (
           <p className="mt-2 text-xs text-muted-foreground">
             이미 보유 중인 종목입니다. 추가하면 수량·평단이 새 값으로 덮어쓰여집니다.
           </p>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// 종목 검색 입력 + 드롭다운. 선택 전에는 검색창, 선택 후에는 선택된 종목 칩을 보여준다.
+function StockSearchPicker({
+  selected,
+  onSelect,
+  inputCls,
+}: {
+  selected: SearchHit | null
+  onSelect: (stock: SearchHit | null) => void
+  inputCls: string
+}) {
+  const [query, setQuery] = React.useState("")
+  const [index, setIndex] = React.useState<SlimStock[] | null>(null)
+  const [indexError, setIndexError] = React.useState(false)
+  const [open, setOpen] = React.useState(false)
+  const [active, setActive] = React.useState(0)
+  const wrapRef = React.useRef<HTMLDivElement>(null)
+
+  // 종목 목록을 1회 로드(중복 호출은 api-client 가 캐시로 합쳐줌).
+  const ensureIndex = React.useCallback(() => {
+    if (index) return
+    loadStockIndex()
+      .then((list) => {
+        setIndex(list)
+        setIndexError(false)
+      })
+      .catch(() => setIndexError(true))
+  }, [index])
+
+  const results = React.useMemo(() => {
+    if (!index || !query.trim()) return []
+    return rankStocks(index, query)
+  }, [index, query])
+
+  // 바깥 클릭 시 드롭다운 닫기
+  React.useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [])
+
+  function choose(stock: SearchHit) {
+    onSelect(stock)
+    setQuery("")
+    setOpen(false)
+  }
+
+  function clearSelection() {
+    onSelect(null)
+    setQuery("")
+    setOpen(false)
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!open || results.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActive((a) => (a + 1) % results.length)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActive((a) => (a - 1 + results.length) % results.length)
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      choose(results[active] ?? results[0])
+    } else if (e.key === "Escape") {
+      setOpen(false)
+    }
+  }
+
+  const loadingIndex = !index && !indexError && query.trim().length > 0
+
+  // 이미 종목을 선택한 상태면 검색창 대신 선택된 종목을 보여준다.
+  if (selected) {
+    return (
+      <div
+        className={cn(
+          inputCls,
+          "flex w-full items-center justify-between gap-2",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{selected.name}</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {selected.code}
+          </span>
+        </span>
+        <button
+          type="button"
+          aria-label="선택한 종목 지우기"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={clearSelection}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={wrapRef} className="relative w-full">
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={query}
+          placeholder="종목 검색 (예: 삼성전자, 005930)"
+          className={cn(inputCls, "w-full pr-7 pl-8")}
+          aria-label="종목 검색"
+          onFocus={() => {
+            ensureIndex()
+            if (query) setOpen(true)
+          }}
+          onChange={(e) => {
+            ensureIndex()
+            setQuery(e.target.value)
+            setActive(0)
+            setOpen(true)
+          }}
+          onKeyDown={onKeyDown}
+        />
+        {loadingIndex ? (
+          <Loader2 className="absolute top-1/2 right-2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+        ) : (
+          query && (
+            <button
+              type="button"
+              aria-label="검색어 지우기"
+              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setQuery("")
+                setOpen(false)
+              }}
+            >
+              <X className="size-4" />
+            </button>
+          )
+        )}
+      </div>
+
+      {open && results.length > 0 && (
+        <ul className="absolute z-30 mt-1 max-h-80 w-full overflow-y-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg">
+          {results.map((s, i) => (
+            <li key={s.symbol}>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm",
+                  i === active ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+                )}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => choose(s)}
+              >
+                <span className="truncate font-medium">{s.name}</span>
+                <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="font-mono">{s.code}</span>
+                  <span>{s.market}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && query.trim() && (
+        <>
+          {loadingIndex && (
+            <div className="absolute z-30 mt-1 w-full rounded-xl border bg-popover p-3 text-sm text-muted-foreground shadow-lg">
+              종목 목록을 불러오는 중…
+            </div>
+          )}
+          {indexError && (
+            <div className="absolute z-30 mt-1 w-full rounded-xl border bg-popover p-3 text-sm text-muted-foreground shadow-lg">
+              종목 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+            </div>
+          )}
+          {index && results.length === 0 && (
+            <div className="absolute z-30 mt-1 w-full rounded-xl border bg-popover p-3 text-sm text-muted-foreground shadow-lg">
+              검색 결과가 없습니다.
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
