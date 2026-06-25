@@ -43,6 +43,7 @@ import { TopPicksPanel } from "@/components/top-picks-panel"
 import { StockDialog } from "@/components/stock-dialog"
 import { StockSearch } from "@/components/stock-search"
 import { MarketCapPanel } from "@/components/marketcap-panel"
+import { PalettePicker } from "@/components/palette-picker"
 
 type Tab =
   | "dashboard"
@@ -204,6 +205,7 @@ export default function Page() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
+          <PalettePicker />
           <p className="px-2 py-1 text-[10px] leading-tight text-muted-foreground group-data-[collapsible=icon]:hidden">
             시세: 네이버 금융 (실시간)
             <br />
