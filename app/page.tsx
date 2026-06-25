@@ -328,6 +328,7 @@ export default function Page() {
             quotes={quotes}
             onAdd={portfolio.addOrUpdate}
             onRemove={portfolio.remove}
+            onUpdateShares={portfolio.setShares}
             onSelect={selectStock}
           />
         )}
@@ -352,12 +353,12 @@ export default function Page() {
           onAddToPortfolio={
             selected.isIndex
               ? undefined
-              : (meta) => {
-                  // 기본 1주/현재가로 추가 후 내 투자 탭으로 이동
+              : (meta, shares) => {
+                  // 사용자가 고른 수량/현재가로 추가 후 내 투자 탭으로 이동
                   const price = quotes[meta.symbol]?.price ?? 0
                   portfolio.addOrUpdate({
                     ...meta,
-                    shares: 1,
+                    shares,
                     avgPrice: Math.round(price),
                   })
                   setSelected(null)

@@ -68,10 +68,20 @@ export function usePortfolio() {
     write(read().filter((x) => x.symbol !== symbol))
   }, [])
 
+  // 보유 수량만 변경한다(+/- 조절용). 0 이하가 되면 보유에서 제거한다.
+  const setShares = React.useCallback((symbol: string, shares: number) => {
+    const cur = read()
+    if (shares <= 0) {
+      write(cur.filter((x) => x.symbol !== symbol))
+      return
+    }
+    write(cur.map((x) => (x.symbol === symbol ? { ...x, shares } : x)))
+  }, [])
+
   const has = React.useCallback(
     (symbol: string) => holdings.some((x) => x.symbol === symbol),
     [holdings],
   )
 
-  return { holdings, ready, addOrUpdate, remove, has }
+  return { holdings, ready, addOrUpdate, remove, setShares, has }
 }

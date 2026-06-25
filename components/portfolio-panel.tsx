@@ -2,7 +2,7 @@
 
 // "내 투자" 탭: 보유 종목 손익 + 추가/삭제 + 보유 종목 관련 뉴스.
 import * as React from "react"
-import { Trash2, TrendingUp, Wallet } from "lucide-react"
+import { Minus, Plus, Trash2, TrendingUp, Wallet } from "lucide-react"
 
 import type { Quote } from "@/lib/types"
 import { ALL_STOCKS, type StockMeta } from "@/lib/stocks"
@@ -19,6 +19,7 @@ export function PortfolioPanel({
   quotes,
   onAdd,
   onRemove,
+  onUpdateShares,
   onSelect,
 }: {
   holdings: Holding[]
@@ -26,6 +27,7 @@ export function PortfolioPanel({
   quotes: Record<string, Quote>
   onAdd: (h: Holding) => void
   onRemove: (symbol: string) => void
+  onUpdateShares: (symbol: string, shares: number) => void
   onSelect: (stock: StockMeta) => void
 }) {
   // 합계 계산
@@ -96,6 +98,7 @@ export function PortfolioPanel({
                     holding={h}
                     quote={quotes[h.symbol]}
                     onRemove={() => onRemove(h.symbol)}
+                    onUpdateShares={(shares) => onUpdateShares(h.symbol, shares)}
                     onSelect={() => onSelect(h)}
                   />
                 ))}
@@ -141,11 +144,13 @@ function HoldingRow({
   holding,
   quote,
   onRemove,
+  onUpdateShares,
   onSelect,
 }: {
   holding: Holding
   quote?: Quote
   onRemove: () => void
+  onUpdateShares: (shares: number) => void
   onSelect: () => void
 }) {
   const cur = quote?.price ?? holding.avgPrice
@@ -164,10 +169,35 @@ function HoldingRow({
           </span>
         </div>
         <div className="text-xs text-muted-foreground">
-          {holding.shares.toLocaleString("ko-KR")}주 · 평단 {fmtPrice(holding.avgPrice)}
+          평단 {fmtPrice(holding.avgPrice)}
         </div>
       </button>
-      <div className="w-32 shrink-0 text-right">
+
+      {/* 보유 수량 +/- 조절 */}
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => onUpdateShares(holding.shares - 1)}
+          disabled={holding.shares <= 1}
+          aria-label="수량 1주 줄이기"
+        >
+          <Minus />
+        </Button>
+        <span className="w-12 text-center text-sm font-medium tabular-nums">
+          {holding.shares.toLocaleString("ko-KR")}주
+        </span>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => onUpdateShares(holding.shares + 1)}
+          aria-label="수량 1주 늘리기"
+        >
+          <Plus />
+        </Button>
+      </div>
+
+      <div className="w-28 shrink-0 text-right">
         <div className="font-semibold tabular-nums">{fmtPrice(value)}</div>
         <div className={cn("text-xs tabular-nums", changeColor(pl))}>
           {pl >= 0 ? "+" : "-"}

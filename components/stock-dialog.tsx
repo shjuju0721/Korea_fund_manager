@@ -3,7 +3,7 @@
 // 종목/지수 클릭 또는 검색 시 화면 오른쪽에서 슬라이드되어 나오는 상세 패널.
 // 구성: AI(Gemini) 회사 설명 + 라인 차트 + 기간 선택 + 관련 뉴스.
 import * as React from "react"
-import { Plus, Sparkles, X } from "lucide-react"
+import { Check, Minus, Plus, Sparkles, X } from "lucide-react"
 
 import type { ChartResponse, Quote } from "@/lib/types"
 import type { StockMeta } from "@/lib/stocks"
@@ -124,9 +124,12 @@ export function StockDialog({
   quote?: Quote
   isIndex?: boolean
   onClose: () => void
-  onAddToPortfolio?: (meta: StockMeta) => void
+  onAddToPortfolio?: (meta: StockMeta, shares: number) => void
 }) {
   const [range, setRange] = React.useState("1mo")
+  // 보유 추가 시 수량 선택 패널 표시 여부와 선택 수량
+  const [adding, setAdding] = React.useState(false)
+  const [qty, setQty] = React.useState(1)
   // 응답을 (심볼+기간) 키와 함께 저장해 키가 바뀌면 자동으로 로딩 상태가 되게 함.
   const reqKey = `${stock.symbol}:${range}`
   const [res, setRes] = React.useState<{ key: string; chart: ChartResponse | null }>({
@@ -204,16 +207,9 @@ export function StockDialog({
           <div className="flex items-center gap-1">
             {onAddToPortfolio && stock.code && stock.market && (
               <Button
-                variant="outline"
+                variant={adding ? "default" : "outline"}
                 size="sm"
-                onClick={() =>
-                  onAddToPortfolio({
-                    symbol: stock.symbol,
-                    name: stock.name,
-                    code: stock.code!,
-                    market: stock.market as "KOSPI" | "KOSDAQ",
-                  })
-                }
+                onClick={() => setAdding((v) => !v)}
               >
                 <Plus /> 보유 추가
               </Button>
@@ -226,6 +222,70 @@ export function StockDialog({
 
         {/* 본문 (스크롤) */}
         <div className="flex-1 space-y-5 overflow-y-auto p-4">
+          {/* 보유 추가 — 수량 선택 패널 */}
+          {adding && onAddToPortfolio && stock.code && stock.market && (
+            <section className="rounded-xl border bg-muted/30 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">보유에 추가할 수량</h3>
+                {quote && (
+                  <span className="text-xs text-muted-foreground">
+                    매입가 {fmtPrice(quote.price)}원 (현재가 기준)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    disabled={qty <= 1}
+                    aria-label="수량 1주 줄이기"
+                  >
+                    <Minus />
+                  </Button>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={qty}
+                    onChange={(e) =>
+                      setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))
+                    }
+                    className="h-9 w-20 rounded-xl border bg-background text-center text-sm tabular-nums outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+                    aria-label="보유 수량"
+                  />
+                  <span className="text-sm text-muted-foreground">주</span>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => setQty((q) => q + 1)}
+                    aria-label="수량 1주 늘리기"
+                  >
+                    <Plus />
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => {
+                    onAddToPortfolio(
+                      {
+                        symbol: stock.symbol,
+                        name: stock.name,
+                        code: stock.code!,
+                        market: stock.market as "KOSPI" | "KOSDAQ",
+                      },
+                      qty,
+                    )
+                  }}
+                >
+                  <Check /> {qty.toLocaleString("ko-KR")}주 추가
+                </Button>
+              </div>
+            </section>
+          )}
+
           {/* AI 회사 설명 (Gemini) */}
           <AiExplanation name={stock.name} code={stock.code} isIndex={isIndex} />
 
