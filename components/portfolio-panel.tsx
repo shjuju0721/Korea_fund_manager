@@ -6,7 +6,7 @@ import { Loader2, Minus, Plus, Search, Trash2, TrendingUp, Wallet, X } from "luc
 
 import type { Quote } from "@/lib/types"
 import type { StockMeta } from "@/lib/stocks"
-import { loadStockIndex } from "@/lib/api-client"
+import { fetchHistoricalPrice, loadStockIndex } from "@/lib/api-client"
 import { rankStocks, type SearchHit, type SlimStock } from "@/lib/stock-search"
 import type { Holding } from "@/hooks/use-portfolio"
 import { changeColor, fmtPct, fmtPrice } from "@/lib/format"
@@ -219,6 +219,19 @@ function HoldingRow({
   )
 }
 
+// "yyyymmdd" → "yyyy.mm.dd" (자동 조회된 거래일 표시용)
+function fmtDayKey(key: string): string {
+  return `${key.slice(0, 4)}.${key.slice(4, 6)}.${key.slice(6, 8)}`
+}
+
+// 로컬 기준 오늘 날짜 "YYYY-MM-DD" (date 입력의 max 값)
+function todayStr(): string {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 function AddHoldingForm({
   holdings,
   onAdd,
@@ -230,6 +243,53 @@ function AddHoldingForm({
   const [selected, setSelected] = React.useState<SearchHit | null>(null)
   const [shares, setShares] = React.useState("")
   const [avgPrice, setAvgPrice] = React.useState("")
+  // 매수일(선택): 입력하면 그날 종가를 평균단가에 자동으로 채운다.
+  const [buyDate, setBuyDate] = React.useState("")
+  const [priceLoading, setPriceLoading] = React.useState(false)
+  const [priceInfo, setPriceInfo] = React.useState<{ date: string } | null>(null)
+  const [priceError, setPriceError] = React.useState(false)
+
+  const today = React.useMemo(todayStr, [])
+
+  // 종목 + 매수일이 모두 정해지면 그날(또는 직전 거래일) 종가를 조회해 평균단가에 채운다.
+  // 평균단가를 직접 수정한 경우엔 의존성에 없으므로 재조회되지 않는다.
+  const sym = selected?.symbol
+  React.useEffect(() => {
+    if (!sym || !buyDate) {
+      setPriceInfo(null)
+      setPriceError(false)
+      return
+    }
+    let ignore = false
+    setPriceLoading(true)
+    setPriceError(false)
+    fetchHistoricalPrice(sym, buyDate)
+      .then((r) => {
+        if (ignore) return
+        setAvgPrice(String(Math.round(r.close)))
+        setPriceInfo({ date: r.date })
+      })
+      .catch(() => {
+        if (ignore) return
+        setPriceError(true)
+        setPriceInfo(null)
+      })
+      .finally(() => {
+        if (!ignore) setPriceLoading(false)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [sym, buyDate])
+
+  function reset() {
+    setSelected(null)
+    setShares("")
+    setAvgPrice("")
+    setBuyDate("")
+    setPriceInfo(null)
+    setPriceError(false)
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -237,13 +297,12 @@ function AddHoldingForm({
     const ap = Number(avgPrice)
     if (!selected || !(sh > 0) || !(ap > 0)) return
     onAdd({ ...selected, shares: sh, avgPrice: ap })
-    setSelected(null)
-    setShares("")
-    setAvgPrice("")
+    reset()
   }
 
   const inputCls =
     "h-9 rounded-xl border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+  const labelCls = "mb-1 block text-xs text-muted-foreground"
 
   return (
     <Card>
@@ -251,36 +310,79 @@ function AddHoldingForm({
         <CardTitle className="text-base">+ 투자 종목 추가</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
+        <form onSubmit={submit} className="space-y-2">
           <StockSearchPicker
             selected={selected}
             onSelect={setSelected}
             inputCls={inputCls}
           />
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            placeholder="수량"
-            value={shares}
-            onChange={(e) => setShares(e.target.value)}
-            className={cn(inputCls, "w-full sm:w-24")}
-            required
-          />
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            placeholder="평균단가"
-            value={avgPrice}
-            onChange={(e) => setAvgPrice(e.target.value)}
-            className={cn(inputCls, "w-full sm:w-28")}
-            required
-          />
-          <Button type="submit" size="lg" disabled={!selected}>
-            추가
-          </Button>
+          <div className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_auto]">
+            <label className="block">
+              <span className={labelCls}>매수일 (선택)</span>
+              <input
+                type="date"
+                max={today}
+                value={buyDate}
+                onChange={(e) => setBuyDate(e.target.value)}
+                className={cn(inputCls, "w-full")}
+                aria-label="매수일"
+              />
+            </label>
+            <label className="block">
+              <span className={labelCls}>수량</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                placeholder="수량"
+                value={shares}
+                onChange={(e) => setShares(e.target.value)}
+                className={cn(inputCls, "w-full")}
+                required
+              />
+            </label>
+            <label className="block">
+              <span className={labelCls}>평균단가</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                placeholder="평균단가"
+                value={avgPrice}
+                onChange={(e) => {
+                  setAvgPrice(e.target.value)
+                  // 직접 수정하면 자동 조회 안내를 지운다.
+                  setPriceInfo(null)
+                  setPriceError(false)
+                }}
+                className={cn(inputCls, "w-full")}
+                required
+              />
+            </label>
+            <Button type="submit" size="lg" disabled={!selected} className="sm:self-end">
+              추가
+            </Button>
+          </div>
         </form>
+
+        {/* 매수일 자동 조회 안내 */}
+        {priceLoading && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            그날 시세를 불러오는 중…
+          </p>
+        )}
+        {!priceLoading && priceInfo && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {fmtDayKey(priceInfo.date)} 종가를 평균단가에 자동 입력했습니다. 필요하면 직접 수정하세요.
+          </p>
+        )}
+        {!priceLoading && priceError && (
+          <p className="mt-2 text-xs text-destructive">
+            그날 시세를 불러오지 못했어요. 평균단가를 직접 입력해 주세요.
+          </p>
+        )}
+
         {selected && holdings.some((h) => h.symbol === selected.symbol) && (
           <p className="mt-2 text-xs text-muted-foreground">
             이미 보유 중인 종목입니다. 추가하면 수량·평단이 새 값으로 덮어쓰여집니다.

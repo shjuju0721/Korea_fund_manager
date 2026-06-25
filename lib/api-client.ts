@@ -30,6 +30,19 @@ export async function fetchChart(
   return (await res.json()) as ChartResponse
 }
 
+// 특정 날짜(휴장일이면 직전 거래일)의 종가를 우리 서버에서 받아온다.
+// 예전에 산 종목의 "그때 가격"을 자동으로 채울 때 사용.
+export async function fetchHistoricalPrice(
+  symbol: string,
+  date: string,
+): Promise<{ date: string; close: number }> {
+  const res = await fetch(
+    `/api/historical-price?symbol=${encodeURIComponent(symbol)}&date=${encodeURIComponent(date)}`,
+  )
+  if (!res.ok) throw new Error("과거 가격 조회 실패")
+  return (await res.json()) as { date: string; close: number }
+}
+
 export async function fetchSparks(
   symbols: string[],
   range = "1mo",

@@ -153,3 +153,36 @@ export async function getChart(
 export async function getDailyPoints(symbol: string, count = 22): Promise<ChartPoint[]> {
   return fchart(resolve(symbol).nv, "day", count)
 }
+
+/**
+ * 특정 날짜의 종가. 주말·공휴일 등 휴장일이면 그 이전의 가장 가까운 거래일 종가를 쓴다.
+ * (예전에 산 종목을 "그때 가격"으로 추가할 때 사용)
+ * @param date "YYYY-MM-DD" (KST 기준)
+ * @returns 실제 적용된 거래일("yyyymmdd")과 종가. 데이터가 없으면 null.
+ */
+export async function getCloseOnDate(
+  symbol: string,
+  date: string,
+): Promise<{ date: string; close: number } | null> {
+  const target = date.replace(/-/g, "") // "2024-01-15" → "20240115"
+  if (!/^\d{8}$/.test(target)) return null
+
+  // 오늘까지 며칠 전인지로 받아올 일봉 개수를 가늠한다(거래일 ≈ 달력일 × 5/7).
+  // 휴장일 때문에 실제 거래일은 더 적으므로 이 추정치는 넉넉한 상한이라 안전하다.
+  const targetUnix = kstToUnix(target)
+  const calendarDays = Math.max(0, Math.round((Date.now() / 1000 - targetUnix) / 86400))
+  const count = Math.min(4000, Math.ceil((calendarDays * 5) / 7) + 15)
+
+  // fchart 일봉은 오래된→최근 순으로 정렬되어 있다.
+  const pts = await fchart(resolve(symbol).nv, "day", count)
+  if (pts.length === 0) return null
+
+  // 타겟 이하(=그날 또는 그 이전)의 가장 늦은 거래일을 찾는다.
+  let chosen: ChartPoint | undefined
+  for (const p of pts) {
+    if (dayKey(p.t) <= target) chosen = p
+    else break
+  }
+  const point = chosen ?? pts[0] // 데이터 시작보다 더 옛날이면 가장 오래된 거래일로 대체
+  return { date: dayKey(point.t), close: point.close }
+}
